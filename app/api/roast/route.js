@@ -115,8 +115,17 @@ async function fetchRepoData(repo) {
   };
 }
 
-function buildPrompt(data) {
-  return `You are RepoRoast — a brutally honest, sarcastic, and technically sharp AI code reviewer. Your job is to "roast" a GitHub repository. Be funny, savage, and specific. Reference actual file names, variable names, commit messages, and dependency choices you see in the data. No generic roasts — every observation must be grounded in the actual repo data.
+const LANG_NAMES = {
+  en: "English", ru: "Russian", zh: "Chinese", ja: "Japanese", ko: "Korean",
+  es: "Spanish", de: "German", fr: "French", pt: "Portuguese", hi: "Hindi", tr: "Turkish",
+};
+
+function buildPrompt(data, lang = "en") {
+  const langInstruction = lang !== "en"
+    ? `\n\nIMPORTANT: Write ALL text output (label, verdict, section titles, section text) in ${LANG_NAMES[lang] || "English"}. The JSON keys must stay in English, but all string VALUES must be in ${LANG_NAMES[lang] || "English"}. Be natural and fluent in ${LANG_NAMES[lang] || "English"} — don't just translate, write as a native speaker would.`
+    : "";
+
+  return `You are RepoRoast — a brutally honest, sarcastic, and technically sharp AI code reviewer. Your job is to "roast" a GitHub repository. Be funny, savage, and specific. Reference actual file names, variable names, commit messages, and dependency choices you see in the data. No generic roasts — every observation must be grounded in the actual repo data.${langInstruction}
 
 REPO DATA:
 - Name: ${data.name}
@@ -166,7 +175,7 @@ Generate 4-6 sections. Each section should focus on a different aspect (e.g., co
 
 export async function POST(request) {
   try {
-    const { repo } = await request.json();
+    const { repo, lang } = await request.json();
 
     if (!repo || !/^[a-zA-Z0-9._-]+\/[a-zA-Z0-9._-]+$/.test(repo)) {
       return Response.json(
@@ -184,7 +193,7 @@ export async function POST(request) {
     }
 
     const repoData = await fetchRepoData(repo);
-    const prompt = buildPrompt(repoData);
+    const prompt = buildPrompt(repoData, lang);
 
     const genAI = new GoogleGenerativeAI(apiKey);
     const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });

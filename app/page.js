@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
+import { t, LANGUAGES, getLoadingSteps } from "./translations";
 
 const css = `
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -121,16 +122,20 @@ const css = `
     animation: slideIn 0.3s ease forwards;
     opacity: 0;
   }
-`;
 
-const LOADING_STEPS = [
-  { text: "$ git clone your-disaster...", color: "#666", delay: 0 },
-  { text: "Analyzing commit history...", color: "#888", delay: 700 },
-  { text: "Reading variable names...", color: "#888", delay: 1400 },
-  { text: "Oh. Oh no.", color: "#ffd60a", delay: 2000 },
-  { text: "Preparing psychological damage...", color: "#ff6b35", delay: 2600 },
-  { text: "ERROR: Too many red flags to process", color: "#ff1e3c", delay: 3000 },
-];
+  .share-menu-item:hover {
+    background: rgba(255,255,255,0.08) !important;
+  }
+
+  .lang-option:hover {
+    background: rgba(255,30,60,0.15) !important;
+  }
+
+  .sponsor-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 20px rgba(255,30,60,0.25);
+  }
+`;
 
 function Scanline() {
   return (
@@ -207,17 +212,18 @@ function ScoreArc({ score }) {
   );
 }
 
-function TerminalLoader({ onDone, loadingTime }) {
+function TerminalLoader({ onDone, loadingTime, lang }) {
   const [lines, setLines] = useState([]);
   const [apiDone, setApiDone] = useState(false);
   const [minTimePassed, setMinTimePassed] = useState(false);
 
   useEffect(() => {
-    LOADING_STEPS.forEach(({ text, color, delay }) => {
+    const steps = getLoadingSteps(lang);
+    steps.forEach(({ text, color, delay }) => {
       setTimeout(() => setLines(p => [...p, { text, color }]), delay);
     });
     setTimeout(() => setMinTimePassed(true), 3800);
-  }, []);
+  }, [lang]);
 
   useEffect(() => {
     if (loadingTime === "done") setApiDone(true);
@@ -288,12 +294,183 @@ function RoastCard({ s, i }) {
   );
 }
 
+function LanguagePicker({ lang, setLang }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    function handleClick(e) {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
+
+  const current = t(lang, "flag") + " " + t(lang, "lang");
+
+  return (
+    <div ref={ref} style={{ position: "fixed", top: 16, right: 16, zIndex: 50 }}>
+      <button onClick={() => setOpen(!open)} style={{
+        background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)",
+        borderRadius: 8, padding: "6px 12px", color: "rgba(255,255,255,0.6)",
+        cursor: "pointer", fontSize: 12, fontFamily: "'Space Mono', monospace",
+        transition: "all 0.2s", display: "flex", alignItems: "center", gap: 6,
+      }}
+        onMouseEnter={e => { e.currentTarget.style.borderColor = "rgba(255,30,60,0.4)"; }}
+        onMouseLeave={e => { e.currentTarget.style.borderColor = "rgba(255,255,255,0.1)"; }}
+      >
+        {current} <span style={{ fontSize: 8 }}>▼</span>
+      </button>
+      {open && (
+        <div style={{
+          position: "absolute", top: "100%", right: 0, marginTop: 4,
+          background: "#111", border: "1px solid rgba(255,255,255,0.1)",
+          borderRadius: 10, overflow: "hidden", minWidth: 160,
+          boxShadow: "0 8px 32px rgba(0,0,0,0.6)",
+          animation: "fadeIn 0.15s ease",
+        }}>
+          {LANGUAGES.map(code => (
+            <button key={code} className="lang-option" onClick={() => { setLang(code); setOpen(false); }} style={{
+              display: "flex", alignItems: "center", gap: 8, width: "100%",
+              background: lang === code ? "rgba(255,30,60,0.1)" : "transparent",
+              border: "none", padding: "10px 14px", color: lang === code ? "#ff1e3c" : "rgba(255,255,255,0.6)",
+              cursor: "pointer", fontSize: 12, fontFamily: "'Space Mono', monospace",
+              transition: "background 0.15s", textAlign: "left",
+              borderLeft: lang === code ? "2px solid #ff1e3c" : "2px solid transparent",
+            }}>
+              {t(code, "flag")} {t(code, "lang")}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ShareMenu({ result, lang }) {
+  const [open, setOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    function handleClick(e) {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
+
+  if (!result) return null;
+
+  const shareText = `My repo "${result.repo}" scored ${result.score}/100 on RepoRoast 🔥\n"${result.label}"`;
+  const shareUrl = "https://reporoast.vercel.app";
+  const fullText = `RepoRoast: ${result.repo}\nScore: ${result.score}/100 — "${result.label}"\n\n${result.verdict}\n\n${result.sections.map(s => `${s.icon} ${s.title} [${s.severity}]\n${s.text}`).join("\n\n")}`;
+
+  function doCopy(text) {
+    navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+
+  const items = [
+    { label: t(lang, "copyText"), onClick: () => doCopy(fullText) },
+    { label: t(lang, "copyLink"), onClick: () => doCopy(shareUrl) },
+    { divider: true },
+    { label: t(lang, "shareTwitter"), onClick: () => window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText + "\n\nGet roasted: " + shareUrl)}`, "_blank") },
+    { label: t(lang, "shareTelegram"), onClick: () => window.open(`https://t.me/share/url?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(shareText)}`, "_blank") },
+    { label: t(lang, "shareWhatsApp"), onClick: () => window.open(`https://wa.me/?text=${encodeURIComponent(shareText + "\n\n" + shareUrl)}`, "_blank") },
+    { label: t(lang, "shareReddit"), onClick: () => window.open(`https://reddit.com/submit?url=${encodeURIComponent(shareUrl)}&title=${encodeURIComponent(`My repo scored ${result.score}/100 on RepoRoast 🔥`)}`, "_blank") },
+    { label: t(lang, "shareLinkedIn"), onClick: () => window.open(`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(shareUrl)}`, "_blank") },
+  ];
+
+  return (
+    <div ref={ref} style={{ position: "relative", flex: 2 }}>
+      <button onClick={() => setOpen(!open)} style={{
+        width: "100%", padding: "13px 18px", borderRadius: 10, cursor: "pointer",
+        fontSize: 11, letterSpacing: 2, textTransform: "uppercase",
+        fontFamily: "'Space Mono', monospace", transition: "all 0.2s",
+        background: "linear-gradient(135deg, #ff1e3c, #cc0022)", border: "none",
+        color: "#fff", boxShadow: "0 4px 20px rgba(255,30,60,0.35)",
+      }}
+        onMouseEnter={e => e.currentTarget.style.opacity = "0.8"}
+        onMouseLeave={e => e.currentTarget.style.opacity = "1"}
+      >
+        {copied ? t(lang, "copied") : t(lang, "shareRoast")}
+      </button>
+      {open && (
+        <div style={{
+          position: "absolute", bottom: "100%", left: "50%", transform: "translateX(-50%)",
+          marginBottom: 6, background: "#111",
+          border: "1px solid rgba(255,255,255,0.1)", borderRadius: 10,
+          overflow: "hidden", minWidth: 220,
+          boxShadow: "0 8px 32px rgba(0,0,0,0.6)",
+          animation: "fadeIn 0.15s ease",
+        }}>
+          {items.map((item, i) => item.divider ? (
+            <div key={i} style={{ height: 1, background: "rgba(255,255,255,0.08)", margin: "4px 0" }} />
+          ) : (
+            <button key={i} className="share-menu-item" onClick={() => { item.onClick(); setOpen(false); }} style={{
+              display: "block", width: "100%", background: "transparent",
+              border: "none", padding: "10px 16px",
+              color: "rgba(255,255,255,0.7)", cursor: "pointer",
+              fontSize: 12, fontFamily: "'Space Mono', monospace",
+              transition: "background 0.15s", textAlign: "left",
+            }}>
+              {item.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SponsorBar() {
+  return (
+    <div style={{
+      display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap",
+      animation: "fadeUp 0.6s 0.3s ease both", opacity: 0,
+    }}>
+      <a href="https://patreon.com/RepoRoast" target="_blank" rel="noopener noreferrer"
+        className="sponsor-btn"
+        style={{
+          display: "inline-flex", alignItems: "center", gap: 8,
+          padding: "8px 18px", borderRadius: 8,
+          background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.1)",
+          color: "rgba(255,255,255,0.5)", textDecoration: "none",
+          fontFamily: "'Space Mono', monospace", fontSize: 11, letterSpacing: 1,
+          transition: "all 0.2s", cursor: "pointer",
+        }}>
+        <span style={{ fontSize: 16 }}>🎨</span> Patreon
+      </a>
+      <a href="https://buymeacoffee.com/RepoRoast" target="_blank" rel="noopener noreferrer"
+        className="sponsor-btn"
+        style={{
+          display: "inline-flex", alignItems: "center", gap: 8,
+          padding: "8px 18px", borderRadius: 8,
+          background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.1)",
+          color: "rgba(255,255,255,0.5)", textDecoration: "none",
+          fontFamily: "'Space Mono', monospace", fontSize: 11, letterSpacing: 1,
+          transition: "all 0.2s", cursor: "pointer",
+        }}>
+        <span style={{ fontSize: 16 }}>☕</span> Buy Me a Coffee
+      </a>
+    </div>
+  );
+}
+
 export default function Home() {
   const [url, setUrl] = useState("");
   const [phase, setPhase] = useState("input");
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
   const [loadingTime, setLoadingTime] = useState("loading");
+  const [lang, setLang] = useState("en");
+
+  useEffect(() => {
+    const browserLang = navigator.language?.slice(0, 2);
+    if (LANGUAGES.includes(browserLang)) setLang(browserLang);
+  }, []);
 
   function extractRepo(input) {
     const cleaned = input.trim().replace(/\/+$/, "");
@@ -306,7 +483,7 @@ export default function Home() {
   async function handleRoast() {
     const repo = extractRepo(url);
     if (!repo) {
-      setError("Enter a valid GitHub repo: username/repository");
+      setError(t(lang, "errorInvalidRepo"));
       return;
     }
     setError(null);
@@ -317,7 +494,7 @@ export default function Home() {
       const res = await fetch("/api/roast", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ repo }),
+        body: JSON.stringify({ repo, lang }),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
@@ -336,23 +513,14 @@ export default function Home() {
     if (result) setPhase("result");
   }
 
-  function copyResult() {
-    if (!result) return;
-    const text = `RepoRoast: ${result.repo}\nScore: ${result.score}/100 — "${result.label}"\n\n${result.verdict}\n\n${result.sections.map(s => `${s.icon} ${s.title} [${s.severity}]\n${s.text}`).join("\n\n")}`;
-    navigator.clipboard.writeText(text);
-  }
-
-  function shareTwitter() {
-    if (!result) return;
-    const text = encodeURIComponent(`My repo "${result.repo}" scored ${result.score}/100 on RepoRoast 🔥\n"${result.label}"\n\nGet roasted:`);
-    window.open(`https://twitter.com/intent/tweet?text=${text}`, "_blank");
-  }
+  const g = (key) => t(lang, key);
 
   return (
     <>
       <style>{css}</style>
       <Scanline />
       <GridBg />
+      <LanguagePicker lang={lang} setLang={setLang} />
 
       <div style={{
         position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
@@ -378,7 +546,7 @@ export default function Home() {
                 color: "#ff1e3c", marginBottom: 20, textTransform: "uppercase",
                 filter: "drop-shadow(0 0 8px rgba(255,30,60,0.6))"
               }}>
-                ◆ CODE REVIEW AS PUNISHMENT ◆
+                {g("tagline")}
               </div>
 
               <div style={{ position: "relative", display: "inline-block" }}>
@@ -394,9 +562,10 @@ export default function Home() {
 
               <p style={{
                 fontFamily: "'Space Mono', monospace", fontSize: 13,
-                color: "rgba(255,255,255,0.35)", marginTop: 20, letterSpacing: 1
+                color: "rgba(255,255,255,0.35)", marginTop: 20, letterSpacing: 1,
+                whiteSpace: "pre-line"
               }}>
-                Paste your GitHub repo.<br />We&apos;ll tell you the truth.
+                {g("subtitle")}
               </p>
             </div>
 
@@ -427,7 +596,7 @@ export default function Home() {
                   value={url}
                   onChange={e => setUrl(e.target.value)}
                   onKeyDown={e => e.key === "Enter" && handleRoast()}
-                  placeholder="username/repository"
+                  placeholder={g("placeholder")}
                   style={{
                     flex: 1, background: "transparent", border: "none", outline: "none",
                     color: "#fff", fontSize: 14, padding: "15px 16px",
@@ -450,7 +619,7 @@ export default function Home() {
                   animation: "pulse-red 3s infinite"
                 }}
               >
-                🔥 ROAST MY CODE
+                {g("roastBtn")}
               </button>
 
               <p style={{
@@ -458,9 +627,11 @@ export default function Home() {
                 fontFamily: "'Space Mono', monospace", fontSize: 10,
                 color: "rgba(255,255,255,0.15)", letterSpacing: 1
               }}>
-                Public repos only · Emotional damage not covered by warranty
+                {g("disclaimer")}
               </p>
             </div>
+
+            <SponsorBar />
           </div>
         )}
 
@@ -471,8 +642,8 @@ export default function Home() {
               fontFamily: "'Bebas Neue', sans-serif", fontSize: 36, color: "#ff1e3c",
               letterSpacing: 4, filter: "drop-shadow(0 0 16px rgba(255,30,60,0.6))",
               animation: "flicker 2s infinite"
-            }}>ANALYZING...</div>
-            <TerminalLoader onDone={handleLoaderDone} loadingTime={loadingTime} />
+            }}>{g("analyzing")}</div>
+            <TerminalLoader onDone={handleLoaderDone} loadingTime={loadingTime} lang={lang} />
           </div>
         )}
 
@@ -494,13 +665,13 @@ export default function Home() {
               }}
                 onMouseEnter={e => { e.currentTarget.style.borderColor = "rgba(255,30,60,0.4)"; e.currentTarget.style.color = "#ff1e3c"; }}
                 onMouseLeave={e => { e.currentTarget.style.borderColor = "rgba(255,255,255,0.1)"; e.currentTarget.style.color = "rgba(255,255,255,0.4)"; }}
-              >← BACK</button>
+              >{g("back")}</button>
               <span style={{ fontSize: 11, color: "rgba(255,255,255,0.2)" }}>{result.repo}</span>
               <div style={{
                 marginLeft: "auto", fontSize: 9, padding: "4px 10px",
                 background: "rgba(255,30,60,0.1)", border: "1px solid rgba(255,30,60,0.3)",
                 borderRadius: 6, color: "#ff1e3c", letterSpacing: 2
-              }}>LIVE RESULTS</div>
+              }}>{g("liveResults")}</div>
             </div>
 
             {/* Score hero */}
@@ -519,7 +690,7 @@ export default function Home() {
                   fontFamily: "'Space Mono', monospace", fontSize: 9,
                   color: "#ff1e3c", letterSpacing: 4, textTransform: "uppercase",
                   marginBottom: 10, filter: "drop-shadow(0 0 6px rgba(255,30,60,0.5))"
-                }}>Code Health Score</div>
+                }}>{g("codeHealthScore")}</div>
                 <div style={{
                   fontFamily: "'Bebas Neue', sans-serif", fontSize: 36,
                   color: "#fff", letterSpacing: 2, marginBottom: 14,
@@ -542,22 +713,36 @@ export default function Home() {
               display: "flex", gap: 10, flexWrap: "wrap",
               animation: "fadeUp 0.5s 0.6s ease both", opacity: 0
             }}>
-              {[
-                { label: "📋 Copy Result", onClick: copyResult, style: { flex: 1, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.1)", color: "rgba(255,255,255,0.5)" } },
-                { label: "🐦 Share Roast", onClick: shareTwitter, style: { flex: 2, background: "linear-gradient(135deg, #ff1e3c, #cc0022)", border: "none", color: "#fff", boxShadow: "0 4px 20px rgba(255,30,60,0.35)" } },
-                { label: "🔁 Roast Another", onClick: () => { setPhase("input"); setResult(null); setUrl(""); }, style: { flex: 1, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.1)", color: "rgba(255,255,255,0.5)" } },
-              ].map(({ label, onClick, style }) => (
-                <button key={label} onClick={onClick} style={{
-                  padding: "13px 18px", borderRadius: 10, cursor: "pointer",
-                  fontSize: 11, letterSpacing: 2, textTransform: "uppercase",
-                  fontFamily: "'Space Mono', monospace", transition: "all 0.2s",
-                  ...style
-                }}
-                  onMouseEnter={e => e.currentTarget.style.opacity = "0.8"}
-                  onMouseLeave={e => e.currentTarget.style.opacity = "1"}
-                >{label}</button>
-              ))}
+              <button onClick={() => {
+                const text = `RepoRoast: ${result.repo}\nScore: ${result.score}/100 — "${result.label}"\n\n${result.verdict}\n\n${result.sections.map(s => `${s.icon} ${s.title} [${s.severity}]\n${s.text}`).join("\n\n")}`;
+                navigator.clipboard.writeText(text);
+              }} style={{
+                flex: 1, padding: "13px 18px", borderRadius: 10, cursor: "pointer",
+                fontSize: 11, letterSpacing: 2, textTransform: "uppercase",
+                fontFamily: "'Space Mono', monospace", transition: "all 0.2s",
+                background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.1)",
+                color: "rgba(255,255,255,0.5)"
+              }}
+                onMouseEnter={e => e.currentTarget.style.opacity = "0.8"}
+                onMouseLeave={e => e.currentTarget.style.opacity = "1"}
+              >{g("copyResult")}</button>
+
+              <ShareMenu result={result} lang={lang} />
+
+              <button onClick={() => { setPhase("input"); setResult(null); setUrl(""); }} style={{
+                flex: 1, padding: "13px 18px", borderRadius: 10, cursor: "pointer",
+                fontSize: 11, letterSpacing: 2, textTransform: "uppercase",
+                fontFamily: "'Space Mono', monospace", transition: "all 0.2s",
+                background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.1)",
+                color: "rgba(255,255,255,0.5)"
+              }}
+                onMouseEnter={e => e.currentTarget.style.opacity = "0.8"}
+                onMouseLeave={e => e.currentTarget.style.opacity = "1"}
+              >{g("roastAnother")}</button>
             </div>
+
+            {/* Sponsor section */}
+            <SponsorBar />
 
           </div>
         )}
