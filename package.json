@@ -1,16 +1,22 @@
 {
   "name": "reporoast",
   "version": "1.0.0",
-  "private": true,
+  "description": "AI-powered code review as punishment. Brutally honest, sarcastic GitHub repo roasts.",
+  "author": "TruerDev",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TruerDev/RepoRoast"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start"
   },
   "dependencies": {
+    "@google/generative-ai": "^0.21.0",
     "next": "^14.2.0",
     "react": "^18.3.0",
-    "react-dom": "^18.3.0",
-    "@google/generative-ai": "^0.21.0"
+    "react-dom": "^18.3.0"
   }
 }

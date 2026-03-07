@@ -2,6 +2,22 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 
 const GEMINI_MODEL = "gemini-2.5-flash";
 
+const rateLimit = new Map();
+const RATE_LIMIT_WINDOW = 60_000;
+const RATE_LIMIT_MAX = 5;
+
+function checkRateLimit(ip) {
+  const now = Date.now();
+  const entry = rateLimit.get(ip);
+  if (!entry || now - entry.start > RATE_LIMIT_WINDOW) {
+    rateLimit.set(ip, { start: now, count: 1 });
+    return true;
+  }
+  if (entry.count >= RATE_LIMIT_MAX) return false;
+  entry.count++;
+  return true;
+}
+
 async function ghFetch(path) {
   const res = await fetch(`https://api.github.com/repos/${path}`, {
     headers: {
@@ -34,22 +50,14 @@ async function fetchRepoData(repo) {
 
   if (!repoInfo) throw new Error("Repository not found or not accessible");
 
-  const fileTree = tree?.tree
-    ?.filter((f) => f.type === "blob")
-    ?.map((f) => f.path) || [];
+  const fileTree =
+    tree?.tree?.filter((f) => f.type === "blob")?.map((f) => f.path) || [];
 
   const commitMessages = commits?.map((c) => c.commit?.message) || [];
 
-  // Fetch key files
   const keyFiles = [
-    "package.json",
-    "requirements.txt",
-    "Cargo.toml",
-    "go.mod",
-    "pom.xml",
-    "build.gradle",
-    "Gemfile",
-    "pyproject.toml",
+    "package.json", "requirements.txt", "Cargo.toml", "go.mod",
+    "pom.xml", "build.gradle", "Gemfile", "pyproject.toml",
   ];
   const foundDeps = fileTree.find((f) => keyFiles.includes(f));
   let depsContent = null;
@@ -57,12 +65,13 @@ async function fetchRepoData(repo) {
     depsContent = await ghFetchRaw(
       `https://api.github.com/repos/${repo}/contents/${foundDeps}`
     );
+    if (depsContent && depsContent.length > 3000) {
+      depsContent = depsContent.slice(0, 3000) + "\n...[truncated]";
+    }
   }
 
   let readmeContent = null;
-  const readmeFile = fileTree.find((f) =>
-    /^readme\.(md|txt|rst)$/i.test(f)
-  );
+  const readmeFile = fileTree.find((f) => /^readme\.(md|txt|rst)$/i.test(f));
   if (readmeFile) {
     readmeContent = await ghFetchRaw(
       `https://api.github.com/repos/${repo}/contents/${readmeFile}`
@@ -72,8 +81,8 @@ async function fetchRepoData(repo) {
     }
   }
 
-  // Sample some source files for code quality review
-  const codeExtensions = /\.(js|ts|jsx|tsx|py|go|rs|java|rb|php|c|cpp|cs|swift|kt)$/;
+  const codeExtensions =
+    /\.(js|ts|jsx|tsx|py|go|rs|java|rb|php|c|cpp|cs|swift|kt)$/;
   const codeFiles = fileTree.filter((f) => codeExtensions.test(f));
   const sampleFiles = codeFiles.slice(0, 5);
   const codeSnippets = {};
@@ -106,10 +115,7 @@ async function fetchRepoData(repo) {
     fileTree: fileTree.slice(0, 100),
     commitMessages: commitMessages.slice(0, 30),
     depsFile: foundDeps,
-    depsContent:
-      depsContent && depsContent.length > 3000
-        ? depsContent.slice(0, 3000) + "\n...[truncated]"
-        : depsContent,
+    depsContent,
     readme: readmeContent,
     codeSnippets,
   };
@@ -117,13 +123,15 @@ async function fetchRepoData(repo) {
 
 const LANG_NAMES = {
   en: "English", ru: "Russian", zh: "Chinese", ja: "Japanese", ko: "Korean",
-  es: "Spanish", de: "German", fr: "French", pt: "Portuguese", hi: "Hindi", tr: "Turkish",
+  es: "Spanish", de: "German", fr: "French", pt: "Portuguese", hi: "Hindi",
+  tr: "Turkish",
 };
 
 function buildPrompt(data, lang = "en") {
-  const langInstruction = lang !== "en"
-    ? `\n\nIMPORTANT: Write ALL text output (label, verdict, section titles, section text) in ${LANG_NAMES[lang] || "English"}. The JSON keys must stay in English, but all string VALUES must be in ${LANG_NAMES[lang] || "English"}. Be natural and fluent in ${LANG_NAMES[lang] || "English"} — don't just translate, write as a native speaker would.`
-    : "";
+  const langInstruction =
+    lang !== "en"
+      ? `\n\nIMPORTANT: Write ALL text output (label, verdict, section titles, section text) in ${LANG_NAMES[lang] || "English"}. The JSON keys must stay in English, but all string VALUES must be in ${LANG_NAMES[lang] || "English"}. Be natural and fluent — don't just translate, write as a native speaker would.`
+      : "";
 
   return `You are RepoRoast — a brutally honest, sarcastic, and technically sharp AI code reviewer. Your job is to "roast" a GitHub repository. Be funny, savage, and specific. Reference actual file names, variable names, commit messages, and dependency choices you see in the data. No generic roasts — every observation must be grounded in the actual repo data.${langInstruction}
 
@@ -154,7 +162,7 @@ Analyze this repo and produce a roast. Be specific — mention actual file names
 
 Score from 0-100 (0 = complete disaster, 100 = perfect). Most repos should score 20-60. Only truly well-maintained repos score above 70. Score harshly but fairly.
 
-Return ONLY valid JSON (no markdown, no backticks) in this exact format:
+Return a JSON object with this exact structure:
 {
   "score": <number 0-100>,
   "label": "<short sarcastic label, 2-4 words>",
@@ -173,8 +181,52 @@ Return ONLY valid JSON (no markdown, no backticks) in this exact format:
 Generate 4-6 sections. Each section should focus on a different aspect (e.g., code quality, naming, commits, dependencies, project structure, README, testing, etc.). Use the actual data to make specific observations.`;
 }
 
+function parseAIResponse(text) {
+  let jsonStr = text;
+  const jsonMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (jsonMatch) jsonStr = jsonMatch[1];
+  jsonStr = jsonStr.trim();
+
+  // Fix invalid escape sequences that LLMs sometimes produce
+  jsonStr = jsonStr.replace(/\\(?![nrtbf\\/"])/g, "\\\\");
+
+  try {
+    return JSON.parse(jsonStr);
+  } catch {
+    const objMatch = jsonStr.match(/\{[\s\S]*\}/);
+    if (!objMatch) throw new Error("Failed to parse AI response as JSON");
+    const cleaned = objMatch[0].replace(/\\(?![nrtbf\\/"])/g, "\\\\");
+    return JSON.parse(cleaned);
+  }
+}
+
+function validateRoast(roast) {
+  if (
+    typeof roast.score !== "number" ||
+    !roast.label ||
+    !roast.verdict ||
+    !Array.isArray(roast.sections)
+  ) {
+    throw new Error("Invalid response structure from AI");
+  }
+  roast.score = Math.max(0, Math.min(100, Math.round(roast.score)));
+  return roast;
+}
+
 export async function POST(request) {
   try {
+    const clientIp =
+      request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+      request.headers.get("x-real-ip") ||
+      "unknown";
+
+    if (!checkRateLimit(clientIp)) {
+      return Response.json(
+        { error: "Too many requests. Please wait a minute before trying again." },
+        { status: 429 }
+      );
+    }
+
     const { repo, lang } = await request.json();
 
     if (!repo || !/^[a-zA-Z0-9._-]+\/[a-zA-Z0-9._-]+$/.test(repo)) {
@@ -196,42 +248,16 @@ export async function POST(request) {
     const prompt = buildPrompt(repoData, lang);
 
     const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
+    const model = genAI.getGenerativeModel({
+      model: GEMINI_MODEL,
+      generationConfig: {
+        responseMimeType: "application/json",
+      },
+    });
     const result = await model.generateContent(prompt);
     const text = result.response.text();
 
-    // Parse JSON from response (handle potential markdown wrapping)
-    let jsonStr = text;
-    const jsonMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/);
-    if (jsonMatch) jsonStr = jsonMatch[1];
-    jsonStr = jsonStr.trim();
-
-    // Fix invalid escape sequences that Gemini sometimes produces
-    // Replace bad escapes like \' \` \_ etc. but preserve valid ones (\n \t \r \\ \/ \")
-    jsonStr = jsonStr.replace(/\\(?![nrtbf\\/"])/g, "\\\\");
-
-    let roast;
-    try {
-      roast = JSON.parse(jsonStr);
-    } catch {
-      // Last resort: try to extract JSON object from response
-      const objMatch = jsonStr.match(/\{[\s\S]*\}/);
-      if (!objMatch) throw new Error("Failed to parse AI response as JSON");
-      const cleaned = objMatch[0].replace(/\\(?![nrtbf\\/"])/g, "\\\\");
-      roast = JSON.parse(cleaned);
-    }
-
-    // Validate structure
-    if (
-      typeof roast.score !== "number" ||
-      !roast.label ||
-      !roast.verdict ||
-      !Array.isArray(roast.sections)
-    ) {
-      throw new Error("Invalid response structure from AI");
-    }
-
-    roast.score = Math.max(0, Math.min(100, Math.round(roast.score)));
+    const roast = validateRoast(parseAIResponse(text));
 
     return Response.json(roast);
   } catch (err) {
@@ -240,6 +266,7 @@ export async function POST(request) {
       err.message === "Repository not found or not accessible"
         ? err.message
         : "Failed to generate roast. Please try again.";
-    return Response.json({ error: message }, { status: err.message.includes("not found") ? 404 : 500 });
+    const status = err.message.includes("not found") ? 404 : 500;
+    return Response.json({ error: message }, { status });
   }
 }

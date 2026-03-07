@@ -1,3 +1,5 @@
+import "./globals.css";
+
 export const metadata = {
   title: "RepoRoast — AI Code Review as Punishment",
   description: "Paste your GitHub repo. We'll roast your code with brutally honest, sarcastic AI reviews. Get a score, laugh, cry, and maybe fix your code.",
