@@ -43,7 +43,8 @@ One-click deploy to Vercel — just add `GEMINI_API_KEY` as an environment varia
 
 ## Support
 
-[Patreon](https://patreon.com/TruerDev)
+- [Patreon](https://patreon.com/TruerDev)
+- [Boosty](https://boosty.to/reporoast) (для поддержки из РФ)
 
 ## License
 
