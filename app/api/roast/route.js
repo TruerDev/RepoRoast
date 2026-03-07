@@ -18,23 +18,30 @@ function checkRateLimit(ip) {
   return true;
 }
 
+function ghHeaders(accept = "application/vnd.github.v3+json") {
+  const headers = { Accept: accept, "User-Agent": "RepoRoast/1.0" };
+  const token = process.env.GITHUB_TOKEN;
+  if (token) headers.Authorization = `Bearer ${token}`;
+  return headers;
+}
+
 async function ghFetch(path) {
   const res = await fetch(`https://api.github.com/repos/${path}`, {
-    headers: {
-      Accept: "application/vnd.github.v3+json",
-      "User-Agent": "RepoRoast/1.0",
-    },
+    headers: ghHeaders(),
   });
+  if (res.status === 403) {
+    const body = await res.json().catch(() => ({}));
+    if (body.message?.includes("rate limit")) {
+      throw new Error("GitHub API rate limit exceeded. Please try again later.");
+    }
+  }
   if (!res.ok) return null;
   return res.json();
 }
 
 async function ghFetchRaw(url) {
   const res = await fetch(url, {
-    headers: {
-      Accept: "application/vnd.github.v3.raw",
-      "User-Agent": "RepoRoast/1.0",
-    },
+    headers: ghHeaders("application/vnd.github.v3.raw"),
   });
   if (!res.ok) return null;
   return res.text();
@@ -262,11 +269,18 @@ export async function POST(request) {
     return Response.json(roast);
   } catch (err) {
     console.error("Roast API error:", err);
-    const message =
-      err.message === "Repository not found or not accessible"
-        ? err.message
-        : "Failed to generate roast. Please try again.";
-    const status = err.message.includes("not found") ? 404 : 500;
+
+    let message = "Failed to generate roast. Please try again.";
+    let status = 500;
+
+    if (err.message.includes("rate limit")) {
+      message = err.message;
+      status = 429;
+    } else if (err.message.includes("not found") || err.message.includes("not accessible")) {
+      message = err.message;
+      status = 404;
+    }
+
     return Response.json({ error: message }, { status });
   }
 }
