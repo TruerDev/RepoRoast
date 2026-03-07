@@ -206,7 +206,20 @@ export async function POST(request) {
     if (jsonMatch) jsonStr = jsonMatch[1];
     jsonStr = jsonStr.trim();
 
-    const roast = JSON.parse(jsonStr);
+    // Fix invalid escape sequences that Gemini sometimes produces
+    // Replace bad escapes like \' \` \_ etc. but preserve valid ones (\n \t \r \\ \/ \")
+    jsonStr = jsonStr.replace(/\\(?![nrtbf\\/"])/g, "\\\\");
+
+    let roast;
+    try {
+      roast = JSON.parse(jsonStr);
+    } catch {
+      // Last resort: try to extract JSON object from response
+      const objMatch = jsonStr.match(/\{[\s\S]*\}/);
+      if (!objMatch) throw new Error("Failed to parse AI response as JSON");
+      const cleaned = objMatch[0].replace(/\\(?![nrtbf\\/"])/g, "\\\\");
+      roast = JSON.parse(cleaned);
+    }
 
     // Validate structure
     if (
