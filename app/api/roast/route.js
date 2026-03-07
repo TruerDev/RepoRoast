@@ -220,8 +220,18 @@ function validateRoast(roast) {
   return roast;
 }
 
+export async function GET() {
+  return Response.json({
+    status: "ok",
+    hasGeminiKey: !!process.env.GEMINI_API_KEY,
+    hasGithubToken: !!process.env.GITHUB_TOKEN,
+  });
+}
+
 export async function POST(request) {
   try {
+    console.log("[roast] POST request received");
+
     const clientIp =
       request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
       request.headers.get("x-real-ip") ||
@@ -245,12 +255,14 @@ export async function POST(request) {
 
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
+      console.error("[roast] GEMINI_API_KEY is not set");
       return Response.json(
         { error: "Server configuration error: missing API key" },
         { status: 500 }
       );
     }
 
+    console.log(`[roast] Fetching repo data for: ${repo}`);
     const repoData = await fetchRepoData(repo);
     const prompt = buildPrompt(repoData, lang);
 
