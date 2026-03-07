@@ -443,7 +443,7 @@ function SponsorBar() {
         className="sponsor-btn" style={btnStyle}>
         <span style={{ fontSize: 16 }}>🎨</span> Patreon
       </a>
-      <a href="https://boosty.to/reporoast" target="_blank" rel="noopener noreferrer"
+      <a href="https://boosty.to/truerdev" target="_blank" rel="noopener noreferrer"
         className="sponsor-btn" style={btnStyle}>
         <span style={{ fontSize: 16 }}>🚀</span> Boosty
       </a>
