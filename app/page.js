@@ -59,7 +59,7 @@ export default function Home() {
       setLoadingTime("done");
     } catch (err) {
       setError(err.message);
-      setPhase("input");
+      setPhase("error");
     } finally {
       setSubmitting(false);
     }
@@ -210,6 +210,66 @@ export default function Home() {
               animation: "flicker 2s infinite",
             }}>{g("analyzing")}</div>
             <TerminalLoader onDone={handleLoaderDone} loadingTime={loadingTime} lang={lang} />
+          </div>
+        )}
+
+        {/* ERROR PHASE */}
+        {phase === "error" && error && (
+          <div style={{
+            display: "flex", flexDirection: "column", alignItems: "center",
+            gap: 28, width: "100%", maxWidth: 500,
+            animation: "fadeUp 0.5s ease both",
+          }}>
+            <div style={{
+              width: "100%",
+              background: "linear-gradient(135deg, rgba(255,30,60,0.12), rgba(255,30,60,0.03))",
+              border: "1px solid rgba(255,30,60,0.3)",
+              borderRadius: 16,
+              padding: "40px 32px",
+              boxShadow: "0 0 60px rgba(255,30,60,0.1), inset 0 1px 0 rgba(255,255,255,0.04)",
+              textAlign: "center",
+            }}>
+              <div style={{
+                fontSize: 48, marginBottom: 20, lineHeight: 1,
+                filter: "drop-shadow(0 0 12px rgba(255,30,60,0.5))",
+              }}>🔥</div>
+              <div style={{
+                fontFamily: "'Bebas Neue', sans-serif",
+                fontSize: 28, letterSpacing: 3, color: "#ff1e3c",
+                marginBottom: 16,
+                filter: "drop-shadow(0 0 10px rgba(255,30,60,0.6))",
+              }}>OVERHEATED</div>
+              <p style={{
+                fontFamily: "'Space Mono', monospace",
+                fontSize: 13, color: "rgba(255,255,255,0.6)",
+                lineHeight: 1.8, marginBottom: 8,
+              }}>
+                Too many roasts at once. Our AI is catching its breath — try again in a minute.
+              </p>
+              <p style={{
+                fontFamily: "'Space Mono', monospace",
+                fontSize: 10, color: "rgba(255,255,255,0.25)",
+                letterSpacing: 1,
+              }}>
+                (The author doesn&apos;t have money for paid APIs.)
+              </p>
+            </div>
+
+            <button
+              className="roast-btn"
+              onClick={() => { setError(null); setPhase("input"); }}
+              style={{
+                width: "100%", padding: "15px 24px",
+                background: "linear-gradient(135deg, #ff1e3c, #cc0022)",
+                border: "none", borderRadius: 12,
+                color: "#fff", fontSize: 14, fontWeight: 700,
+                letterSpacing: 3, textTransform: "uppercase",
+                cursor: "pointer",
+                fontFamily: "'Space Mono', monospace",
+                boxShadow: "0 4px 30px rgba(255,30,60,0.35)",
+                animation: "pulse-red 3s infinite",
+              }}
+            >{g("back")} ↩</button>
           </div>
         )}
 
