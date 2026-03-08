@@ -5,10 +5,11 @@ const GROQ_MODELS = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"];
 const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
 const OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions";
 const OPENROUTER_MODELS = [
-  "google/gemini-2.0-flash-exp:free",
   "google/gemma-3-27b-it:free",
   "meta-llama/llama-3.3-70b-instruct:free",
-  "deepseek/deepseek-chat-v3-0324:free",
+  "stepfun/step-3.5-flash:free",
+  "nvidia/nemotron-3-nano-30b-a3b:free",
+  "openrouter/free",
 ];
 
 // Round-robin indices
