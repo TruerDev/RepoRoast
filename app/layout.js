@@ -9,7 +9,7 @@ export const metadata = {
   openGraph: {
     title: "RepoRoast — AI Code Review as Punishment",
     description: "Paste your GitHub repo. We'll roast your code with brutally honest, sarcastic AI reviews.",
-    url: "https://reporoast.vercel.app",
+    url: "https://truer-repo-roast.vercel.app",
     siteName: "RepoRoast",
     type: "website",
     locale: "en_US",
@@ -19,7 +19,7 @@ export const metadata = {
     title: "RepoRoast — AI Code Review as Punishment",
     description: "Paste your GitHub repo. We'll roast your code with brutally honest, sarcastic AI reviews.",
   },
-  metadataBase: new URL("https://reporoast.vercel.app"),
+  metadataBase: new URL("https://truer-repo-roast.vercel.app"),
 };
 
 export const viewport = {
