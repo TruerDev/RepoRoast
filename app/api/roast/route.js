@@ -1,10 +1,15 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
 const GEMINI_MODEL = "gemini-2.5-flash";
-const GROQ_MODEL = "llama-3.3-70b-versatile";
+const GROQ_MODELS = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"];
 const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
 const OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions";
-const OPENROUTER_MODEL = "google/gemini-2.0-flash-exp:free";
+const OPENROUTER_MODELS = [
+  "google/gemini-2.0-flash-exp:free",
+  "google/gemma-3-27b-it:free",
+  "meta-llama/llama-3.3-70b-instruct:free",
+  "deepseek/deepseek-chat-v3-0324:free",
+];
 
 // Round-robin indices
 let geminiKeyIndex = 0;
@@ -333,94 +338,94 @@ export async function POST(request) {
           break;
         } catch (geminiErr) {
           console.warn(`[roast] Gemini key #${keyIdx} failed:`, geminiErr.message);
-          if (!geminiErr.message?.includes("429") && !geminiErr.message?.includes("quota") && !geminiErr.message?.includes("Too Many") && !geminiErr.message?.includes("RESOURCE_EXHAUSTED")) {
-            // Non-quota error — skip remaining Gemini keys
-            break;
-          }
+          // Continue trying other keys — each key may have different validity/quota
         }
       }
     }
 
-    // 2. Fallback to OpenRouter (free model)
+    // 2. Fallback to OpenRouter (try multiple free models)
     if (!text && openRouterKey) {
-      try {
-        const res = await fetch(OPENROUTER_API_URL, {
-          method: "POST",
-          headers: {
-            "Authorization": `Bearer ${openRouterKey}`,
-            "Content-Type": "application/json",
-            "HTTP-Referer": "https://truer-repo-roast.vercel.app",
-            "X-Title": "RepoRoast",
-          },
-          body: JSON.stringify({
-            model: OPENROUTER_MODEL,
-            messages: [
-              { role: "system", content: "You are a JSON-only API. Respond with valid JSON only, no markdown fences." },
-              { role: "user", content: prompt },
-            ],
-            temperature: 0.9,
-            max_tokens: 4096,
-          }),
-        });
-
-        if (res.ok) {
-          const data = await res.json();
-          text = data.choices?.[0]?.message?.content;
-          usedProvider = "openrouter";
-          console.log("[roast] Generated via OpenRouter");
-        } else {
-          const body = await res.text();
-          console.warn(`[roast] OpenRouter failed (${res.status}):`, body);
-        }
-      } catch (orErr) {
-        console.warn("[roast] OpenRouter error:", orErr.message);
-      }
-    }
-
-    // 3. Fallback to Groq (round-robin across keys)
-    if (!text && groqKeys.length > 0) {
-      let lastGroqErr;
-      for (let attempt = 0; attempt < groqKeys.length; attempt++) {
-        const keyIdx = (groqKeyIndex + attempt) % groqKeys.length;
-        const key = groqKeys[keyIdx];
+      for (const orModel of OPENROUTER_MODELS) {
         try {
-          const res = await fetch(GROQ_API_URL, {
+          const res = await fetch(OPENROUTER_API_URL, {
             method: "POST",
             headers: {
-              "Authorization": `Bearer ${key}`,
+              "Authorization": `Bearer ${openRouterKey}`,
               "Content-Type": "application/json",
+              "HTTP-Referer": "https://truer-repo-roast.vercel.app",
+              "X-Title": "RepoRoast",
             },
             body: JSON.stringify({
-              model: GROQ_MODEL,
+              model: orModel,
               messages: [
                 { role: "system", content: "You are a JSON-only API. Respond with valid JSON only, no markdown fences." },
                 { role: "user", content: prompt },
               ],
               temperature: 0.9,
               max_tokens: 4096,
-              response_format: { type: "json_object" },
             }),
           });
 
-          if (!res.ok) {
-            const body = await res.text();
-            console.warn(`[roast] Groq key #${keyIdx} failed (${res.status}):`, body);
-            if (res.status === 429) {
-              lastGroqErr = new Error("Groq rate limited");
-              continue;
+          if (res.ok) {
+            const data = await res.json();
+            text = data.choices?.[0]?.message?.content;
+            if (text) {
+              usedProvider = `openrouter/${orModel}`;
+              console.log(`[roast] Generated via OpenRouter (${orModel})`);
+              break;
             }
-            throw new Error(`Groq API error: ${res.status}`);
+          } else {
+            const body = await res.text();
+            console.warn(`[roast] OpenRouter ${orModel} failed (${res.status}):`, body);
           }
+        } catch (orErr) {
+          console.warn(`[roast] OpenRouter ${orModel} error:`, orErr.message);
+        }
+      }
+    }
 
-          const data = await res.json();
-          text = data.choices?.[0]?.message?.content;
-          usedProvider = `groq-key#${keyIdx}`;
-          groqKeyIndex = (keyIdx + 1) % groqKeys.length;
-          console.log(`[roast] Generated via Groq (key #${keyIdx})`);
-          break;
-        } catch (groqErr) {
-          lastGroqErr = groqErr;
-          console.warn(`[roast] Groq key #${keyIdx} error:`, groqErr.message);
+    // 3. Fallback to Groq (round-robin across keys, fallback across models)
+    if (!text && groqKeys.length > 0) {
+      for (const groqModel of GROQ_MODELS) {
+        if (text) break;
+        for (let attempt = 0; attempt < groqKeys.length; attempt++) {
+          const keyIdx = (groqKeyIndex + attempt) % groqKeys.length;
+          const key = groqKeys[keyIdx];
+          try {
+            const res = await fetch(GROQ_API_URL, {
+              method: "POST",
+              headers: {
+                "Authorization": `Bearer ${key}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                model: groqModel,
+                messages: [
+                  { role: "system", content: "You are a JSON-only API. Respond with valid JSON only, no markdown fences." },
+                  { role: "user", content: prompt },
+                ],
+                temperature: 0.9,
+                max_tokens: 4096,
+                response_format: { type: "json_object" },
+              }),
+            });
+
+            if (!res.ok) {
+              const body = await res.text();
+              console.warn(`[roast] Groq ${groqModel} key #${keyIdx} failed (${res.status}):`, body);
+              if (res.status === 429) continue;
+              break; // Non-rate-limit error — try next model
+            }
+
+            const data = await res.json();
+            text = data.choices?.[0]?.message?.content;
+            usedProvider = `groq-${groqModel}-key#${keyIdx}`;
+            groqKeyIndex = (keyIdx + 1) % groqKeys.length;
+            console.log(`[roast] Generated via Groq ${groqModel} (key #${keyIdx})`);
+            break;
+          } catch (groqErr) {
+            console.warn(`[roast] Groq ${groqModel} key #${keyIdx} error:`, groqErr.message);
+          }
         }
       }
     }
