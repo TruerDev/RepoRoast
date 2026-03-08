@@ -3,8 +3,11 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 const GEMINI_MODEL = "gemini-2.5-flash";
 const GROQ_MODEL = "llama-3.3-70b-versatile";
 const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
+const OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions";
+const OPENROUTER_MODEL = "google/gemini-2.0-flash-exp:free";
 
-// Round-robin index for Groq keys
+// Round-robin indices
+let geminiKeyIndex = 0;
 let groqKeyIndex = 0;
 
 const rateLimit = new Map();
@@ -155,7 +158,7 @@ RULES OF ENGAGEMENT:
 - Use dark humor, sarcasm, backhanded compliments, and creative metaphors. Think Gordon Ramsay reviewing code.
 - If something is genuinely good, acknowledge it — then immediately pivot to something terrible. The praise makes the roast hit harder.
 - Roast the DECISIONS, not the person. Why did they choose THAT library? Why is THAT file 500 lines? Why does THAT commit message say "fix"?
-- DO NOT comment on dates being "in the future" — today's date is ${now}. All dates in the repo data are real and valid.${langInstruction}
+- TODAY'S DATE IS ${now}. The current year is ${now.slice(0, 4)}. All dates in the repo data are real and valid. NEVER say any date is "in the future". NEVER assume the year is 2024 or any other year — use ${now.slice(0, 4)} as the current year.${langInstruction}
 
 REPO DATA:
 - Name: ${data.name}
@@ -242,11 +245,26 @@ function validateRoast(roast) {
   return roast;
 }
 
+function getGeminiKeys() {
+  const keys = [];
+  // Support both GEMINI_API_KEYS (comma-separated) and legacy GEMINI_API_KEY
+  if (process.env.GEMINI_API_KEYS) {
+    keys.push(...process.env.GEMINI_API_KEYS.split(",").map(k => k.trim()).filter(Boolean));
+  }
+  if (process.env.GEMINI_API_KEY) {
+    const single = process.env.GEMINI_API_KEY.trim();
+    if (single && !keys.includes(single)) keys.push(single);
+  }
+  return keys;
+}
+
 export async function GET() {
+  const geminiKeys = getGeminiKeys().length;
   const groqKeys = (process.env.GROQ_API_KEYS || "").split(",").filter(k => k.trim()).length;
   return Response.json({
     status: "ok",
-    hasGeminiKey: !!process.env.GEMINI_API_KEY,
+    geminiKeyCount: geminiKeys,
+    hasOpenRouterKey: !!process.env.OPENROUTER_API_KEY,
     hasGithubToken: !!process.env.GITHUB_TOKEN,
     groqKeyCount: groqKeys,
   });
@@ -277,10 +295,11 @@ export async function POST(request) {
       );
     }
 
-    const apiKey = process.env.GEMINI_API_KEY;
+    const geminiKeys = getGeminiKeys();
     const groqKeys = (process.env.GROQ_API_KEYS || "").split(",").map(k => k.trim()).filter(Boolean);
+    const openRouterKey = process.env.OPENROUTER_API_KEY?.trim();
 
-    if (!apiKey && groqKeys.length === 0) {
+    if (geminiKeys.length === 0 && !openRouterKey && groqKeys.length === 0) {
       console.error("[roast] No AI API keys configured");
       return Response.json(
         { error: "Server configuration error: no API keys" },
@@ -295,32 +314,71 @@ export async function POST(request) {
     let text;
     let usedProvider = "none";
 
-    // Try Gemini first
-    if (apiKey) {
-      try {
-        const genAI = new GoogleGenerativeAI(apiKey);
-        const model = genAI.getGenerativeModel({
-          model: GEMINI_MODEL,
-          generationConfig: { responseMimeType: "application/json" },
-        });
-        const result = await model.generateContent(prompt);
-        text = result.response.text();
-        usedProvider = "gemini";
-        console.log("[roast] Generated via Gemini");
-      } catch (geminiErr) {
-        console.warn("[roast] Gemini failed:", geminiErr.message);
-        if (!geminiErr.message?.includes("429") && !geminiErr.message?.includes("quota") && !geminiErr.message?.includes("Too Many")) {
-          throw geminiErr;
+    // 1. Try Gemini first (round-robin across keys)
+    if (geminiKeys.length > 0) {
+      for (let attempt = 0; attempt < geminiKeys.length; attempt++) {
+        const keyIdx = (geminiKeyIndex + attempt) % geminiKeys.length;
+        const key = geminiKeys[keyIdx];
+        try {
+          const genAI = new GoogleGenerativeAI(key);
+          const model = genAI.getGenerativeModel({
+            model: GEMINI_MODEL,
+            generationConfig: { responseMimeType: "application/json" },
+          });
+          const result = await model.generateContent(prompt);
+          text = result.response.text();
+          usedProvider = `gemini-key#${keyIdx}`;
+          geminiKeyIndex = (keyIdx + 1) % geminiKeys.length;
+          console.log(`[roast] Generated via Gemini (key #${keyIdx})`);
+          break;
+        } catch (geminiErr) {
+          console.warn(`[roast] Gemini key #${keyIdx} failed:`, geminiErr.message);
+          if (!geminiErr.message?.includes("429") && !geminiErr.message?.includes("quota") && !geminiErr.message?.includes("Too Many") && !geminiErr.message?.includes("RESOURCE_EXHAUSTED")) {
+            // Non-quota error — skip remaining Gemini keys
+            break;
+          }
         }
       }
     }
 
-    // Fallback to Groq if Gemini failed or unavailable
-    if (!text) {
-      if (groqKeys.length === 0) {
-        throw new Error("AI service temporarily overloaded. Please try again in a minute.");
-      }
+    // 2. Fallback to OpenRouter (free model)
+    if (!text && openRouterKey) {
+      try {
+        const res = await fetch(OPENROUTER_API_URL, {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${openRouterKey}`,
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://truer-repo-roast.vercel.app",
+            "X-Title": "RepoRoast",
+          },
+          body: JSON.stringify({
+            model: OPENROUTER_MODEL,
+            messages: [
+              { role: "system", content: "You are a JSON-only API. Respond with valid JSON only, no markdown fences." },
+              { role: "user", content: prompt },
+            ],
+            temperature: 0.9,
+            max_tokens: 4096,
+          }),
+        });
 
+        if (res.ok) {
+          const data = await res.json();
+          text = data.choices?.[0]?.message?.content;
+          usedProvider = "openrouter";
+          console.log("[roast] Generated via OpenRouter");
+        } else {
+          const body = await res.text();
+          console.warn(`[roast] OpenRouter failed (${res.status}):`, body);
+        }
+      } catch (orErr) {
+        console.warn("[roast] OpenRouter error:", orErr.message);
+      }
+    }
+
+    // 3. Fallback to Groq (round-robin across keys)
+    if (!text && groqKeys.length > 0) {
       let lastGroqErr;
       for (let attempt = 0; attempt < groqKeys.length; attempt++) {
         const keyIdx = (groqKeyIndex + attempt) % groqKeys.length;
@@ -365,10 +423,10 @@ export async function POST(request) {
           console.warn(`[roast] Groq key #${keyIdx} error:`, groqErr.message);
         }
       }
+    }
 
-      if (!text) {
-        throw lastGroqErr || new Error("All AI providers failed. Please try again later.");
-      }
+    if (!text) {
+      throw new Error("All AI providers failed. Please try again later.");
     }
 
     console.log(`[roast] Raw AI response (first 200 chars):`, text?.slice(0, 200));
