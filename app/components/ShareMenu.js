@@ -19,7 +19,7 @@ export default function ShareMenu({ result, lang }) {
   if (!result) return null;
 
   const shareText = `My repo "${result.repo}" scored ${result.score}/100 on RepoRoast\n"${result.label}"`;
-  const shareUrl = "https://reporoast.vercel.app";
+  const shareUrl = "https://truer-repo-roast.vercel.app";
   const fullText = [
     `RepoRoast: ${result.repo}`,
     `Score: ${result.score}/100 — "${result.label}"`,
